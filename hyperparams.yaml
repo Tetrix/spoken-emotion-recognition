@@ -1,0 +1,167 @@
+# Generated 2022-01-19 from:
+# /scratch/elec/t405-puhe/p/porjazd1/Metadata_Classification/TCN/asr_topic_speechbrain/mgb_asr/hyperparams.yaml
+# yamllint disable
+# Seed needs to be set at top of yaml, before objects with parameters are made
+seed: 1234
+__set_seed: !apply:torch.manual_seed [1234]
+
+skip_training: True
+
+output_folder: output_folder
+label_encoder_file: !ref <output_folder>/label_encoder.txt
+
+train_log: !ref <output_folder>/train_log.txt
+train_logger: !new:speechbrain.utils.train_logger.FileTrainLogger
+    save_file: !ref <output_folder>/train_log.txt
+
+
+# Feature parameters
+sample_rate: 48000
+new_sample_rate: 16000
+window_size: 25
+n_mfcc: 23
+
+
+# Training params
+n_epochs: 100
+stopping_factor: 10
+
+dataloader_options:
+    batch_size: 25
+    shuffle: false
+
+test_dataloader_options:
+    batch_size: 2
+    shuffle: false
+
+label_smoothing: 0.0
+lr: 0.001
+
+
+label_encoder: !new:speechbrain.dataio.encoder.CategoricalEncoder
+
+# initial model
+input_size: 69
+activation: !name:torch.nn.LeakyReLU
+dropout: 0.15
+cnn_blocks: 2
+cnn_channels: (32, 64)
+inter_layer_pooling_size: (2, 2)
+cnn_kernelsize: (3, 3)
+time_pooling_size: 4
+rnn_class: !name:speechbrain.nnet.RNN.LSTM
+rnn_layers: 2
+rnn_neurons: 128
+rnn_bidirectional: True
+dnn_blocks: 1
+dnn_neurons: 256
+alpha_weight: 0.6
+num_labels: 5
+
+
+resample: !new:speechbrain.processing.speech_augmentation.Resample
+    orig_freq: !ref <sample_rate>
+    new_freq: !ref <new_sample_rate>
+
+
+compute_features: !new:speechbrain.lobes.features.MFCC
+    sample_rate: !ref <new_sample_rate>
+    win_length: !ref <window_size>
+    n_mfcc: !ref <n_mfcc>
+    deltas: True
+    context: False
+   
+
+    #compute_features: !new:speechbrain.lobes.features.Fbank
+    #    sample_rate: !ref <new_sample_rate>
+    #    win_length: !ref <window_size>
+    #    n_mels: 40
+    #
+
+
+# Feature normalization (mean and std)
+normalizer: !new:speechbrain.processing.features.InputNormalization
+    norm_type: global
+
+
+# The CRDNN model is an encoder that combines CNNs, RNNs, and DNNs.
+encoder: !new:speechbrain.lobes.models.CRDNN.CRDNN
+    input_shape: [null, null, !ref <input_size>]
+    activation: !ref <activation>
+    dropout: !ref <dropout>
+    cnn_blocks: !ref <cnn_blocks>
+    cnn_channels: !ref <cnn_channels>
+    cnn_kernelsize: !ref <cnn_kernelsize>
+    inter_layer_pooling_size: !ref <inter_layer_pooling_size>
+    time_pooling: True
+    using_2d_pooling: False
+    time_pooling_size: !ref <time_pooling_size>
+    rnn_class: !ref <rnn_class>
+    rnn_layers: !ref <rnn_layers>
+    rnn_neurons: !ref <rnn_neurons>
+    rnn_bidirectional: !ref <rnn_bidirectional>
+    rnn_re_init: True
+    dnn_blocks: !ref <dnn_blocks>
+    dnn_neurons: !ref <dnn_neurons>
+    use_rnnp: False
+
+
+label_lin: !new:speechbrain.nnet.linear.Linear
+    input_size: !ref <dnn_neurons>
+    n_neurons: !ref <num_labels>
+
+
+    #encoder: !new:model.Encoder
+    #    input_size: !ref <input_size>
+    #    hidden_size: !ref <hidden_size>
+    #    output_size: !ref <num_labels>
+
+
+log_softmax: !new:speechbrain.nnet.activations.Softmax
+    apply_log: True
+
+
+softmax: !new:speechbrain.nnet.activations.Softmax
+    apply_log: False
+
+
+opt_class: !name:torch.optim.Adam
+    lr: !ref <lr>
+
+
+lr_annealing: !new:speechbrain.nnet.schedulers.NewBobScheduler
+    initial_value: !ref <lr>
+    improvement_threshold: 0.0025
+    annealing_factor: 0.8
+    patient: 1000
+
+epoch_counter: !new:speechbrain.utils.epoch_loop.EpochCounterWithStopper
+    limit: !ref <n_epochs>
+    limit_to_stop: !ref <stopping_factor>
+    limit_warmup: 0
+    direction: "max"
+
+
+# Functions that compute the statistics to track during the validation step.
+accuracy_computer: !name:speechbrain.utils.Accuracy.AccuracyStats
+
+
+modules:
+    encoder: !ref <encoder>
+    label_lin: !ref <label_lin>
+    normalizer: !ref <normalizer>
+
+
+model: !new:torch.nn.ModuleList
+- - !ref <encoder>
+  - !ref <label_lin>
+
+
+
+checkpointer: !new:speechbrain.utils.checkpoints.Checkpointer
+    checkpoints_dir: !ref <output_folder>
+    recoverables:
+        model: !ref <model>
+        scheduler: !ref <lr_annealing>
+        normalizer: !ref <normalizer>
+        counter: !ref <epoch_counter>
